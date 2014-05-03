@@ -1,0 +1,513 @@
+#define MOTOR_TABLE OUT_B
+#define MOTOR_TABLE_MINSPEED 20
+#define MOTOR_TABLE_NORMALSPEED 60
+#define MOTOR_TABLE_MAXSPEED 100
+#define MOTOR_TABLE_SCANSPEED 40
+#define OFFSET_EDGE       35
+#define OFFSET_LASTEDGE   205
+
+#define MOTOR_SCANNER OUT_C
+#define SCANNERPOS_HOME      50
+#define SCANNERPOS_CENTER    145
+#define SCANNERPOS_CORNERS   170
+#define SCANNERPOS_EDGES     167
+#define SCANNERPOS_LASTEDGE  123
+
+#define MOTOR_FLIPPER OUT_A
+#define TILTREST  800	// Time (ms) to rest before return tilterarm
+#define OPTIMAL_FLIP_TIME 215
+
+#define SENSOR_COLOR    IN_4
+#define SENSOR_DISTANCE IN_2
+
+#define WHITE 0
+#define YELLOW 1
+#define RED 2
+#define ORANGE 3
+#define GREEN 4
+#define BLUE 5
+
+struct cube_color
+{
+  string str;
+  float phi;
+  float theta;
+  float mn1;
+  float mn2;
+};
+cube_color CubeColors[6];
+
+#define  UPPERLEFT    0
+#define  UPPERMID     1
+#define  UPPERRIGHT   2
+#define  MIDLEFT      3
+#define  CENTER       4
+#define  MIDRIGHT     5
+#define  DOWNLEFT     6
+#define  DOWNMID      7
+#define  DOWNRIGHT    8
+
+#define TOPFACE    0
+#define BOTTOMFACE 1
+#define FRONTFACE  2
+#define BACKFACE   3
+#define LEFTFACE   4
+#define RIGHTFACE  5
+
+//*****************************************************************************
+// Debugging
+
+#define TOUCH_PORT S3
+#define STEPPER SENSOR_3
+
+#define CHAR_WIDTH 8
+
+int dbg_turn_table_position; //Current position of turntable
+int dbg_scanner_position; //Current position of motor with color sensor
+
+task sensor_value_reader()
+{
+  ResetRotationCount(MOTOR_TABLE);
+  ResetRotationCount(MOTOR_SCANNER);
+  while(true)
+  {
+    dbg_turn_table_position = MotorRotationCount(MOTOR_TABLE);
+    dbg_scanner_position = MotorRotationCount(MOTOR_SCANNER);
+    Wait(10);
+  }
+}
+
+task sensor_value_displayer()
+{
+  TextOut(0,LCD_LINE1, "Table", DRAW_OPT_CLEAR_WHOLE_SCREEN);
+  TextOut(0,LCD_LINE3, "ColorArm");
+  TextOut(0,LCD_LINE5, "Flip");
+  while(true)
+  {
+    NumOut(9*CHAR_WIDTH, LCD_LINE1, dbg_turn_table_position);
+    NumOut(9*CHAR_WIDTH, LCD_LINE3, dbg_scanner_position);
+    Wait(200);
+  }
+}
+
+void waitForStepper()
+{
+  Wait(500);
+  while (!STEPPER) { }
+}
+
+//*****************************************************************************
+// Tools
+
+void ErrorMsg(int value, string call)
+{
+  TextOut(3,LCD_LINE2,call,true);
+  TextOut(3,LCD_LINE4,"Invalid value");
+  NumOut(7,LCD_LINE6,value);
+  PlayFile("Woops.rso");
+  Wait(2000);  
+}
+
+//*****************************************************************************
+// Doing Moves
+
+int currentAngle; // stores current position of turn table in dregrees
+int tiltPower=85; // parameter for tilting the cube; adjusted dynamically in Tilt()
+int grabPower=85/11; // parameter for holding the cube; cal'd dynamically in Tilt()
+bool cubeGrabbed=false; // stores wether cube is currently grabbed or not
+
+void TurnTo(int newAngle)
+{
+  int direction;
+  int angle1,angle2;
+  long pwr;
+  int speed;
+  int distance;
+  if ((newAngle>0) || (newAngle<-270))
+  {
+    ErrorMsg(newAngle, "TurnTo()");
+    return;
+  }
+  if(newAngle!=currentAngle)
+  {
+    if(newAngle==0) // home
+    {
+      OnFwd(MOTOR_TABLE,MOTOR_TABLE_MAXSPEED);
+      do
+      {
+        angle1=MotorRotationCount(MOTOR_TABLE);
+        Wait(20);
+        angle2=MotorRotationCount(MOTOR_TABLE);
+        speed=abs(angle2-angle1);
+        distance=abs(newAngle-angle2);
+        if(speed>11)
+        {
+          pwr=MOTOR_TABLE_MINSPEED+distance;
+          if (pwr < MOTOR_TABLE_MAXSPEED)
+            OnFwd(MOTOR_TABLE,pwr);
+        }
+      }while(distance>30 || angle2!=angle1);
+      Off(MOTOR_TABLE);
+      Wait(300);
+    }
+    else
+    {
+      int angle=newAngle - MotorRotationCount(MOTOR_TABLE);
+      ResetTachoCount(MOTOR_TABLE);
+      Wait(50);
+      RotateMotor(MOTOR_TABLE,MOTOR_TABLE_NORMALSPEED,angle);
+      Wait(300);
+    }
+    currentAngle=newAngle;
+  }
+}
+
+void Tilt()
+{
+  long tachoPrevious,tachoNow;
+  unsigned long tick,time;
+  Coast(MOTOR_TABLE);
+  Wait(200);
+  tick=CurrentTick();
+  OnFwd(MOTOR_FLIPPER,tiltPower);
+  while(MotorRotationCount(MOTOR_FLIPPER)<65);
+  time=CurrentTick()-tick;
+  Off(MOTOR_FLIPPER);
+  if(time > OPTIMAL_FLIP_TIME)
+  {
+    tiltPower += 1 + (time-OPTIMAL_FLIP_TIME)/10;
+    if(tiltPower>100)
+      tiltPower=100;
+  }
+  else
+    tiltPower--;
+  grabPower=tiltPower/11;
+  Wait(TILTREST);
+  OnFwd(MOTOR_FLIPPER,-100);
+  while(MotorRotationCount(MOTOR_FLIPPER)>40);
+  OnFwd(MOTOR_FLIPPER,-20);
+  while(MotorTachoCount(MOTOR_FLIPPER)>20);
+  tachoNow=MotorTachoCount(MOTOR_FLIPPER);
+  do{
+    tachoPrevious=tachoNow;
+    Wait(10);
+    tachoNow=MotorTachoCount(MOTOR_FLIPPER);
+  }while(tachoNow!=tachoPrevious);
+  Coast(MOTOR_FLIPPER);
+}
+
+void GrabCube()
+{
+  Coast(MOTOR_TABLE);
+  OnFwd(MOTOR_FLIPPER,100);
+  while(MotorRotationCount(MOTOR_FLIPPER)<20);
+  OnFwd(MOTOR_FLIPPER,20);
+  while(MotorRotationCount(MOTOR_FLIPPER)<30);
+  OnFwd(MOTOR_FLIPPER,grabPower);
+  Wait(300);
+  cubeGrabbed=true;
+}
+
+
+void ReleaseCube()
+{
+  int tachoNow,tachoPrevious;
+  Off(MOTOR_TABLE);
+  Off(MOTOR_FLIPPER);
+  OnFwd(MOTOR_FLIPPER,-100);
+  while(MotorRotationCount(MOTOR_FLIPPER)>20);
+  OnFwd(MOTOR_FLIPPER,-20);
+  while(MotorTachoCount(MOTOR_FLIPPER)>20);
+  tachoNow=MotorTachoCount(MOTOR_FLIPPER);
+  do
+  {
+    tachoPrevious=tachoNow;
+    Wait(10);
+    tachoNow=MotorTachoCount(MOTOR_FLIPPER);
+  }while(tachoNow!=tachoPrevious);
+  Coast(MOTOR_FLIPPER);
+  cubeGrabbed=false;
+}
+
+inline void TurnQuarter(int num)
+{
+  TurnTo((currentAngle-num*90)%360);
+}
+
+void Twist(int num)
+{
+  int angle=num * -90;
+  if(angle==currentAngle)
+    Wait(TILTREST);
+  else
+    TurnTo(angle);
+  GrabCube();
+  TurnTo(0);
+  ReleaseCube();
+}
+
+//*****************************************************************************
+// Reading Cube
+
+int getColorFromRaw(int red, int green, int blue)
+{
+  float r, phi, theta, mn1, mn2;
+  int retColor;
+  float minDistance;
+  r = sqrt(red*red + green*green + blue*blue);
+  if (green == 0)
+    phi = 0.0;
+  else
+    phi = atand(green/red);
+  if (blue == 0) 
+    theta = 0.0;
+  else
+    theta = acosd( blue/r );
+  mn1 = sqrt(phi*phi + theta*theta);
+  if (theta == 0)
+    mn2 = 0.0;
+  else
+    mn2 = atand(theta/phi);
+  retColor = -1;
+  minDistance = 100000;
+  for (int c=0;c<6;c++)
+  {
+    float currDistance = sqrt(pow(CubeColors[c].phi-phi,2) + pow(CubeColors[c].theta-theta,2) 
+                                + pow(CubeColors[c].mn1-mn1,2) + pow(CubeColors[c].mn2-mn2,2));
+    if ( minDistance > currDistance )
+    {
+      retColor = c;
+      minDistance = currDistance;
+    }
+  }
+  return retColor;
+}
+
+void ReadColor(int face, int pos)
+{
+  int simple_colorval, calcd_colorval;
+  unsigned int raw[];
+  unsigned int norm[];
+  int scaled[];
+  while(!ReadSensorColorEx(SENSOR_COLOR,simple_colorval,raw,norm,scaled));
+  calcd_colorval = getColorFromRaw(raw[0], raw[1], raw[2]);
+  /*
+  
+  Now, I still need to somehow stored the color I just determined ...
+  
+  */
+}
+
+inline void DrawFacelet(int pos)
+{
+  RectOut(59-(pos/3)*17,42-(pos%3)*17,15,15);
+}
+
+
+void ScanFace(int face,int c1,int c2,int c3,int c4,int c5,int c6,int c7,int c8,int endAngle)
+{
+  // *** Initialise table
+  TurnTo(0);
+  ResetTachoCount(MOTOR_TABLE);
+  ClearScreen(); 
+  waitForStepper();
+
+  // *** scan center
+  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_CENTER-SCANNERPOS_HOME,0,false,true);
+  ReadColor(face,CENTER);
+  DrawFacelet(CENTER); 
+
+  // *** scan corners
+  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_CORNERS-SCANNERPOS_CENTER,0,false,true);
+  ReadColor(face,c1);
+  DrawFacelet(UPPERRIGHT); 
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,-90,0,false,true);
+  ReadColor(face,c2);
+  DrawFacelet(DOWNRIGHT); 
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,-90,0,false,true);
+  ReadColor(face,c3);
+  DrawFacelet(DOWNLEFT); 
+  RotateMotor(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,-90);
+  ReadColor(face,c4);
+  DrawFacelet(UPPERLEFT); 
+
+  // *** scan edges
+  RotateMotorEx(MOTOR_SCANNER,10,SCANNERPOS_EDGES-SCANNERPOS_CORNERS,0,false,true);
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,OFFSET_EDGE,0,false,true);
+  ReadColor(face,c5);
+  DrawFacelet(MIDLEFT); 
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
+  ReadColor(face,c6);
+  DrawFacelet(UPPERMID); 
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
+  ReadColor(face,c7);
+  DrawFacelet(MIDRIGHT); 
+  // *** ... the last edge is scanned on the way way back
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,OFFSET_LASTEDGE - 270 - OFFSET_EDGE,0,false,true);
+  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_LASTEDGE-SCANNERPOS_EDGES,0,false,true);
+  ReadColor(face,c8);
+  DrawFacelet(DOWNMID); 
+  
+  // *** reset scanner arm an table
+  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_HOME-SCANNERPOS_LASTEDGE,0,false,true);
+  currentAngle=-1;
+  TurnTo(endAngle);
+}
+
+void ScanCube()
+{
+  SetSensorColorFull(SENSOR_COLOR);
+  ScanFace(TOPFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
+  Tilt();
+  ScanFace(BACKFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
+  Tilt();
+  ScanFace(BOTTOMFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,-270);
+  Tilt();
+  ScanFace(LEFTFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
+  Tilt();
+  ScanFace(FRONTFACE,UPPERLEFT,DOWNLEFT,DOWNRIGHT,UPPERRIGHT,MIDRIGHT,DOWNMID,MIDLEFT,UPPERMID,0);
+  Tilt();
+  ScanFace(RIGHTFACE,DOWNLEFT,DOWNRIGHT,UPPERRIGHT,UPPERLEFT,UPPERMID,MIDRIGHT,DOWNMID,MIDLEFT,-270);
+  Tilt();
+  TurnQuarter(1);
+  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
+}
+
+//*****************************************************************************
+// Initialisations
+
+void InitCubeRepresentation()
+{
+  CubeColors[WHITE].str = "White";
+  CubeColors[WHITE].phi =   44.85;
+  CubeColors[WHITE].theta = 55.98;
+  CubeColors[WHITE].mn1 =   71.73;
+  CubeColors[WHITE].mn2 =   51.30;
+
+  CubeColors[YELLOW].str = "Yellow";
+  CubeColors[YELLOW].phi =   41.37;
+  CubeColors[YELLOW].theta = 61.82;
+  CubeColors[YELLOW].mn1 =   74.39;
+  CubeColors[YELLOW].mn2 =   56.21;
+
+  CubeColors[RED].str = "Red";
+  CubeColors[RED].phi =   35.30;
+  CubeColors[RED].theta = 61.88;
+  CubeColors[RED].mn1 =   71.26;
+  CubeColors[RED].mn2 =   60.29;
+
+  CubeColors[ORANGE].str = "Orange";
+  CubeColors[ORANGE].phi =   37.69;
+  CubeColors[ORANGE].theta = 63.40;
+  CubeColors[ORANGE].mn1 =   73.76;
+  CubeColors[ORANGE].mn2 =   59.27;
+
+  CubeColors[BLUE].str = "Blue";
+  CubeColors[BLUE].phi =   48.49;
+  CubeColors[BLUE].theta = 48.79;
+  CubeColors[BLUE].mn1 =   68.81;
+  CubeColors[BLUE].mn2 =   45.18;
+
+  CubeColors[GREEN].str = "Green";
+  CubeColors[GREEN].phi =   52.24;
+  CubeColors[GREEN].theta = 53.44;
+  CubeColors[GREEN].mn1 =   74.74;
+  CubeColors[GREEN].mn2 =   45.66;
+}
+
+void InitMotor(byte Motor, int DirectedSpeed, bool doCoast)
+{
+  int tachoNow,tachoPrevious;
+  OnFwd(Motor, DirectedSpeed);
+  do
+  {
+    tachoPrevious=tachoNow;
+    Wait(100);
+    tachoNow=MotorTachoCount(Motor);
+  }while(tachoNow!=tachoPrevious);
+  if (doCoast) {Coast(Motor);} else {Off(Motor);}
+  Wait(500);
+  ResetAllTachoCounts(Motor);
+  Wait(500);
+}
+
+void InitTilter()
+{
+  InitMotor(MOTOR_FLIPPER,-20, true);
+}
+
+void InitScanner()
+{
+  InitMotor(MOTOR_SCANNER,-30,false);
+  RotateMotor(MOTOR_SCANNER,10,SCANNERPOS_HOME);
+}
+
+void InitTurntable()
+{
+  InitMotor(MOTOR_TABLE, 15,true);
+  currentAngle=0;
+}
+
+void Initialize()
+{
+  InitCubeRepresentation();
+  InitTilter();
+  InitScanner();
+  InitTurntable();
+  SetSensorLowspeed(SENSOR_DISTANCE);
+  SetSensorTouch(TOUCH_PORT);
+}
+
+void WaitForCube()
+{
+  TextOut(7,LCD_LINE4,"Einen Wuerfel, bitte.",true);
+  Wait(2000);
+  unsigned long startTick=CurrentTick();
+  do
+  {
+    if(SensorUS(SENSOR_DISTANCE) > 10)
+      startTick=CurrentTick();
+  }while(CurrentTick() - startTick < 1000 && !ButtonPressed(BTNCENTER,false));
+  TextOut(20,LCD_LINE5,"THANK YOU!",true);
+  PlayFile("Thank You.rso");
+  Wait(2000);
+}
+
+//*****************************************************************************
+// main part
+
+task cube_tester()
+{
+  Initialize();
+  WaitForCube();
+  //ScanCube();
+  
+  TurnQuarter(1); waitForStepper();
+  Tilt(); waitForStepper();
+  TurnQuarter(1); waitForStepper();
+  Twist(1); waitForStepper();
+  TurnQuarter(3); waitForStepper();
+  Tilt(); waitForStepper();
+  Twist(1); waitForStepper();
+  Tilt(); waitForStepper();
+  TurnQuarter(1); waitForStepper();
+  TurnQuarter(1); waitForStepper();
+  Twist(1); waitForStepper();
+  Tilt(); waitForStepper();
+  TurnQuarter(1); waitForStepper();
+  TurnQuarter(1); waitForStepper();
+  Tilt(); waitForStepper();
+  Twist(1); waitForStepper();
+  Tilt(); waitForStepper();
+  Tilt(); waitForStepper();
+  TurnQuarter(2); waitForStepper();
+  Twist(1); waitForStepper();
+  Tilt(); waitForStepper();
+  TurnQuarter(2); waitForStepper();
+}
+
+task main() {
+   Precedes(cube_tester);
+  //Precedes(sensor_value_reader, sensor_value_displayer, cube_tester);
+}
+
