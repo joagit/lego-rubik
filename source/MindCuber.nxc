@@ -1,24 +1,23 @@
-#define MOTOR_TABLE OUT_B
+#define MOTOR_TABLE OUT_A
 #define MOTOR_TABLE_MINSPEED 20
 #define MOTOR_TABLE_NORMALSPEED 60
+#define TABLE_GEAR_FACTOR 3
 #define MOTOR_TABLE_MAXSPEED 100
 #define MOTOR_TABLE_SCANSPEED 40
-#define OFFSET_EDGE       35
-#define OFFSET_LASTEDGE   205
+#define OFFSET_EDGE       45
 
-#define MOTOR_SCANNER OUT_C
+#define MOTOR_SCANNER OUT_B
 #define SCANNERPOS_HOME      50
 #define SCANNERPOS_CENTER    145
 #define SCANNERPOS_CORNERS   170
 #define SCANNERPOS_EDGES     167
-#define SCANNERPOS_LASTEDGE  123
 
-#define MOTOR_FLIPPER OUT_A
+#define MOTOR_FLIPPER OUT_C
 #define TILTREST  800	// Time (ms) to rest before return tilterarm
 #define OPTIMAL_FLIP_TIME 215
 
-#define SENSOR_COLOR    IN_4
-#define SENSOR_DISTANCE IN_2
+#define SENSOR_COLOR    IN_2
+#define SENSOR_DISTANCE IN_1
 
 #define WHITE 0
 #define YELLOW 1
@@ -93,7 +92,7 @@ task sensor_value_displayer()
 void waitForStepper()
 {
   Wait(500);
-  while (!STEPPER) { }
+  while (!ButtonPressed(BTNLEFT,true)) { }
 }
 
 //*****************************************************************************
@@ -229,11 +228,6 @@ void ReleaseCube()
   cubeGrabbed=false;
 }
 
-inline void TurnQuarter(int num)
-{
-  TurnTo((currentAngle-num*90)%360);
-}
-
 void Twist(int num)
 {
   int angle=num * -90;
@@ -244,6 +238,13 @@ void Twist(int num)
   GrabCube();
   TurnTo(0);
   ReleaseCube();
+}
+
+void TurnCube(int num)
+{
+  long angle;
+  angle = num * 90 * TABLE_GEAR_FACTOR;
+  RotateMotor(MOTOR_TABLE,MOTOR_TABLE_NORMALSPEED,angle);
 }
 
 //*****************************************************************************
@@ -342,14 +343,12 @@ void ScanFace(int face,int c1,int c2,int c3,int c4,int c5,int c6,int c7,int c8,i
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
   ReadColor(face,c7);
   DrawFacelet(MIDRIGHT); 
-  // *** ... the last edge is scanned on the way way back
-  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,OFFSET_LASTEDGE - 270 - OFFSET_EDGE,0,false,true);
-  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_LASTEDGE-SCANNERPOS_EDGES,0,false,true);
+  RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
   ReadColor(face,c8);
   DrawFacelet(DOWNMID); 
   
-  // *** reset scanner arm an table
-  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_HOME-SCANNERPOS_LASTEDGE,0,false,true);
+  // *** reset scanner arm and table
+  RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_HOME-SCANNERPOS_CORNERS,0,false,true);
   currentAngle=-1;
   TurnTo(endAngle);
 }
@@ -369,7 +368,6 @@ void ScanCube()
   Tilt();
   ScanFace(RIGHTFACE,DOWNLEFT,DOWNRIGHT,UPPERRIGHT,UPPERLEFT,UPPERMID,MIDRIGHT,DOWNMID,MIDLEFT,-270);
   Tilt();
-  TurnQuarter(1);
   SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
 }
 
@@ -451,23 +449,28 @@ void InitTurntable()
 void Initialize()
 {
   InitCubeRepresentation();
-  InitTilter();
-  InitScanner();
-  InitTurntable();
+  //InitTilter();
+  //InitScanner();
+  //InitTurntable();
   SetSensorLowspeed(SENSOR_DISTANCE);
   SetSensorTouch(TOUCH_PORT);
 }
 
 void WaitForCube()
 {
-  TextOut(7,LCD_LINE4,"Einen Wuerfel, bitte.",true);
-  Wait(2000);
+	int distance;
+  TextOut(7,LCD_LINE2,"Einen Wuerfel,",true);
+  TextOut(7,LCD_LINE3,"bitte.",false);
+  Wait(500);
   unsigned long startTick=CurrentTick();
+  //TextOut(0,LCD_LINE5, "Distance:", false);
   do
   {
-    if(SensorUS(SENSOR_DISTANCE) > 10)
+  	distance = SensorUS(SENSOR_DISTANCE);
+  	//NumOut(60,LCD_LINE5, distance);
+    if(distance > 16)
       startTick=CurrentTick();
-  }while(CurrentTick() - startTick < 1000 && !ButtonPressed(BTNCENTER,false));
+  }while((CurrentTick() - startTick < 1000) && !ButtonPressed(BTNCENTER,false));
   TextOut(20,LCD_LINE5,"THANK YOU!",true);
   PlayFile("Thank You.rso");
   Wait(2000);
@@ -480,30 +483,35 @@ task cube_tester()
 {
   Initialize();
   WaitForCube();
+  
+  /*
+  TurnCube(1); waitForStepper();
+  TurnCube(2); waitForStepper();
+  TurnCube(3); waitForStepper();
+  TurnCube(4); waitForStepper();
+  TurnCube(-1); waitForStepper();
+  TurnCube(-2); waitForStepper();
+  TurnCube(-3); waitForStepper();
+  TurnCube(-4); waitForStepper();
+  */
+
   //ScanCube();
   
-  TurnQuarter(1); waitForStepper();
-  Tilt(); waitForStepper();
-  TurnQuarter(1); waitForStepper();
-  Twist(1); waitForStepper();
-  TurnQuarter(3); waitForStepper();
+  /*
   Tilt(); waitForStepper();
   Twist(1); waitForStepper();
   Tilt(); waitForStepper();
-  TurnQuarter(1); waitForStepper();
-  TurnQuarter(1); waitForStepper();
   Twist(1); waitForStepper();
-  Tilt(); waitForStepper();
-  TurnQuarter(1); waitForStepper();
-  TurnQuarter(1); waitForStepper();
   Tilt(); waitForStepper();
   Twist(1); waitForStepper();
   Tilt(); waitForStepper();
   Tilt(); waitForStepper();
-  TurnQuarter(2); waitForStepper();
   Twist(1); waitForStepper();
   Tilt(); waitForStepper();
-  TurnQuarter(2); waitForStepper();
+  Tilt(); waitForStepper();
+  Twist(1); waitForStepper();
+  Tilt(); waitForStepper();
+  */
 }
 
 task main() {

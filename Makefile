@@ -6,18 +6,20 @@
 USB=-U
 BLUETOOTH=-v -S=/dev/tty.NXT-DevB
 
-# Path to the NXC compiler relative to the Makefile
+# Path to the NXC compiler
 NXC=/Applications/NXT/nbc
 NXTCOM=/Applications/NXT/nxtcom_scripts/nxtcom
 
 # Options to pass to the compiler
-OPTIONS=-Z2
+OPTIONS=-Z2 -EF
 
 # Change the name of the program helloworld.rxe to be whatever you want
 # to name the final executable
-PROGRAM=TiltedTwister
+PROGRAM=MindCuber
 
-all: $(PROGRAM).rxe download
+all: compile download
+
+compile: $(PROGRAM).rxe
 
 $(PROGRAM).rxe: source/$(PROGRAM).nxc Makefile
 	cd source;                    \
