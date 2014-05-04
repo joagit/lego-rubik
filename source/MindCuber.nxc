@@ -1,7 +1,8 @@
 #define MOTOR_TABLE OUT_A
-#define MOTOR_TABLE_MINSPEED 20
 #define MOTOR_TABLE_NORMALSPEED 60
 #define TABLE_GEAR_FACTOR 3
+
+#define MOTOR_TABLE_MINSPEED 20
 #define MOTOR_TABLE_MAXSPEED 100
 #define MOTOR_TABLE_SCANSPEED 40
 #define OFFSET_EDGE       45
@@ -13,6 +14,11 @@
 #define SCANNERPOS_EDGES     167
 
 #define MOTOR_FLIPPER OUT_C
+#define FLIPPER_HOME_POS 0
+#define FLIPPER_GRAB_POS -155
+#define FLIPPER_HOME_TO_GRAB -155
+#define FLIPPER_GRAB_TO_HOME 155
+#define MOTOR_FLIPPER_NORMALSPEED 60
 #define TILTREST  800	// Time (ms) to rest before return tilterarm
 #define OPTIMAL_FLIP_TIME 215
 
@@ -110,56 +116,12 @@ void ErrorMsg(int value, string call)
 //*****************************************************************************
 // Doing Moves
 
-int currentAngle; // stores current position of turn table in dregrees
+int flipperPosition;
+
+int currentAngle;
 int tiltPower=85; // parameter for tilting the cube; adjusted dynamically in Tilt()
 int grabPower=85/11; // parameter for holding the cube; cal'd dynamically in Tilt()
 bool cubeGrabbed=false; // stores wether cube is currently grabbed or not
-
-void TurnTo(int newAngle)
-{
-  int direction;
-  int angle1,angle2;
-  long pwr;
-  int speed;
-  int distance;
-  if ((newAngle>0) || (newAngle<-270))
-  {
-    ErrorMsg(newAngle, "TurnTo()");
-    return;
-  }
-  if(newAngle!=currentAngle)
-  {
-    if(newAngle==0) // home
-    {
-      OnFwd(MOTOR_TABLE,MOTOR_TABLE_MAXSPEED);
-      do
-      {
-        angle1=MotorRotationCount(MOTOR_TABLE);
-        Wait(20);
-        angle2=MotorRotationCount(MOTOR_TABLE);
-        speed=abs(angle2-angle1);
-        distance=abs(newAngle-angle2);
-        if(speed>11)
-        {
-          pwr=MOTOR_TABLE_MINSPEED+distance;
-          if (pwr < MOTOR_TABLE_MAXSPEED)
-            OnFwd(MOTOR_TABLE,pwr);
-        }
-      }while(distance>30 || angle2!=angle1);
-      Off(MOTOR_TABLE);
-      Wait(300);
-    }
-    else
-    {
-      int angle=newAngle - MotorRotationCount(MOTOR_TABLE);
-      ResetTachoCount(MOTOR_TABLE);
-      Wait(50);
-      RotateMotor(MOTOR_TABLE,MOTOR_TABLE_NORMALSPEED,angle);
-      Wait(300);
-    }
-    currentAngle=newAngle;
-  }
-}
 
 void Tilt()
 {
@@ -197,54 +159,35 @@ void Tilt()
 
 void GrabCube()
 {
-  Coast(MOTOR_TABLE);
-  OnFwd(MOTOR_FLIPPER,100);
-  while(MotorRotationCount(MOTOR_FLIPPER)<20);
-  OnFwd(MOTOR_FLIPPER,20);
-  while(MotorRotationCount(MOTOR_FLIPPER)<30);
-  OnFwd(MOTOR_FLIPPER,grabPower);
-  Wait(300);
-  cubeGrabbed=true;
+	if (flipperPosition == FLIPPER_HOME_POS)
+	{
+  	RotateMotor(MOTOR_FLIPPER,MOTOR_FLIPPER_NORMALSPEED,FLIPPER_HOME_TO_GRAB);
+    Wait(300);
+    flipperPosition=FLIPPER_GRAB_POS;
+  }
 }
 
 
 void ReleaseCube()
 {
-  int tachoNow,tachoPrevious;
-  Off(MOTOR_TABLE);
-  Off(MOTOR_FLIPPER);
-  OnFwd(MOTOR_FLIPPER,-100);
-  while(MotorRotationCount(MOTOR_FLIPPER)>20);
-  OnFwd(MOTOR_FLIPPER,-20);
-  while(MotorTachoCount(MOTOR_FLIPPER)>20);
-  tachoNow=MotorTachoCount(MOTOR_FLIPPER);
-  do
-  {
-    tachoPrevious=tachoNow;
-    Wait(10);
-    tachoNow=MotorTachoCount(MOTOR_FLIPPER);
-  }while(tachoNow!=tachoPrevious);
-  Coast(MOTOR_FLIPPER);
-  cubeGrabbed=false;
+	if (flipperPosition == FLIPPER_GRAB_POS)
+	{
+    RotateMotor(MOTOR_FLIPPER,MOTOR_FLIPPER_NORMALSPEED,FLIPPER_GRAB_TO_HOME);
+    Wait(300);
+    flipperPosition=FLIPPER_HOME_POS;
+  }
 }
 
 void Twist(int num)
 {
-  int angle=num * -90;
-  if(angle==currentAngle)
-    Wait(TILTREST);
-  else
-    TurnTo(angle);
   GrabCube();
-  TurnTo(0);
+  RotateMotor(MOTOR_TABLE,MOTOR_TABLE_NORMALSPEED, num*90*TABLE_GEAR_FACTOR);
   ReleaseCube();
 }
 
 void TurnCube(int num)
 {
-  long angle;
-  angle = num * 90 * TABLE_GEAR_FACTOR;
-  RotateMotor(MOTOR_TABLE,MOTOR_TABLE_NORMALSPEED,angle);
+  RotateMotor(MOTOR_TABLE, MOTOR_TABLE_NORMALSPEED, num*90*TABLE_GEAR_FACTOR);
 }
 
 //*****************************************************************************
@@ -308,7 +251,6 @@ inline void DrawFacelet(int pos)
 void ScanFace(int face,int c1,int c2,int c3,int c4,int c5,int c6,int c7,int c8,int endAngle)
 {
   // *** Initialise table
-  TurnTo(0);
   ResetTachoCount(MOTOR_TABLE);
   ClearScreen(); 
   waitForStepper();
@@ -350,7 +292,6 @@ void ScanFace(int face,int c1,int c2,int c3,int c4,int c5,int c6,int c7,int c8,i
   // *** reset scanner arm and table
   RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_HOME-SCANNERPOS_CORNERS,0,false,true);
   currentAngle=-1;
-  TurnTo(endAngle);
 }
 
 void ScanCube()
@@ -413,45 +354,27 @@ void InitCubeRepresentation()
   CubeColors[GREEN].mn2 =   45.66;
 }
 
-void InitMotor(byte Motor, int DirectedSpeed, bool doCoast)
-{
-  int tachoNow,tachoPrevious;
-  OnFwd(Motor, DirectedSpeed);
-  do
-  {
-    tachoPrevious=tachoNow;
-    Wait(100);
-    tachoNow=MotorTachoCount(Motor);
-  }while(tachoNow!=tachoPrevious);
-  if (doCoast) {Coast(Motor);} else {Off(Motor);}
-  Wait(500);
-  ResetAllTachoCounts(Motor);
-  Wait(500);
-}
-
 void InitTilter()
 {
-  InitMotor(MOTOR_FLIPPER,-20, true);
+  flipperPosition = FLIPPER_HOME_POS;
 }
 
 void InitScanner()
 {
-  InitMotor(MOTOR_SCANNER,-30,false);
+
   RotateMotor(MOTOR_SCANNER,10,SCANNERPOS_HOME);
 }
 
 void InitTurntable()
 {
-  InitMotor(MOTOR_TABLE, 15,true);
-  currentAngle=0;
 }
 
 void Initialize()
 {
   InitCubeRepresentation();
-  //InitTilter();
+  InitTilter();
   //InitScanner();
-  //InitTurntable();
+  InitTurntable();
   SetSensorLowspeed(SENSOR_DISTANCE);
   SetSensorTouch(TOUCH_PORT);
 }
@@ -463,11 +386,9 @@ void WaitForCube()
   TextOut(7,LCD_LINE3,"bitte.",false);
   Wait(500);
   unsigned long startTick=CurrentTick();
-  //TextOut(0,LCD_LINE5, "Distance:", false);
   do
   {
   	distance = SensorUS(SENSOR_DISTANCE);
-  	//NumOut(60,LCD_LINE5, distance);
     if(distance > 16)
       startTick=CurrentTick();
   }while((CurrentTick() - startTick < 1000) && !ButtonPressed(BTNCENTER,false));
@@ -483,6 +404,9 @@ task cube_tester()
 {
   Initialize();
   WaitForCube();
+  
+  GrabCube(); waitForStepper();
+  ReleaseCube(); waitForStepper();
   
   /*
   TurnCube(1); waitForStepper();
