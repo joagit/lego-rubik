@@ -1,11 +1,11 @@
 #define MOTOR_TABLE OUT_A
-#define MOTOR_TABLE_NORMALSPEED 60
+#define MOTOR_TABLE_NORMALSPEED 90
 #define TABLE_GEAR_FACTOR 3
+#define TABLE_OFFSET_FOR_TWIST 12
 
 #define MOTOR_TABLE_MINSPEED 20
 #define MOTOR_TABLE_MAXSPEED 100
 #define MOTOR_TABLE_SCANSPEED 40
-#define TABLE_OFFSET_FOR_TWIST 10
 #define TABLE_OFFSET_EDGE       45
 
 #define MOTOR_SCANNER OUT_B
@@ -23,9 +23,9 @@
 #define FLIPPER_GRAB_TO_TILT -90
 #define FLIPPER_TILT_TO_GRAB 90
 #define FLIPPER_TILT_TO_HOME 245
-#define MOTOR_FLIPPER_NORMALSPEED 60
-#define MOTOR_FLIPPER_TILTSPEED 60
-#define TILTREST 300	// Time (ms) to rest before return tilterarm
+#define MOTOR_FLIPPER_NORMALSPEED 90
+#define MOTOR_FLIPPER_TILTSPEED 90
+#define TILTREST 0	// Time (ms) to rest before return tilterarm
 
 #define SENSOR_COLOR    IN_2
 #define SENSOR_DISTANCE IN_1
@@ -123,28 +123,22 @@ void ErrorMsg(int value, string call)
 
 int flipperPosition;
 
-int currentAngle;
-int tiltPower=85; // parameter for tilting the cube; adjusted dynamically in Tilt()
-int grabPower=85/11; // parameter for holding the cube; cal'd dynamically in Tilt()
-bool cubeGrabbed=false; // stores wether cube is currently grabbed or not
-
 void GrabCube()
 {
 	if (flipperPosition == FLIPPER_HOME_POS)
 	{
   	RotateMotor(MOTOR_FLIPPER,MOTOR_FLIPPER_NORMALSPEED,FLIPPER_HOME_TO_GRAB);
-    Wait(100);
+    Wait(0);
     flipperPosition=FLIPPER_GRAB_POS;
   }
 }
-
 
 void ReleaseCube()
 {
 	if (flipperPosition == FLIPPER_GRAB_POS)
 	{
     RotateMotor(MOTOR_FLIPPER,MOTOR_FLIPPER_NORMALSPEED,FLIPPER_GRAB_TO_HOME);
-    Wait(100);
+    Wait(0);
     flipperPosition=FLIPPER_HOME_POS;
   }
 }
@@ -219,12 +213,12 @@ void ReadColor(int face, int pos)
   unsigned int raw[];
   unsigned int norm[];
   int scaled[];
+  SetSensorColorFull(SENSOR_COLOR);
   while(!ReadSensorColorEx(SENSOR_COLOR,simple_colorval,raw,norm,scaled));
   calcd_colorval = getColorFromRaw(raw[0], raw[1], raw[2]);
+  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   /*
-  
   Now, I still need to somehow stored the color I just determined ...
-  
   */
 }
 
@@ -232,7 +226,6 @@ inline void DrawFacelet(int pos)
 {
   RectOut(59-(pos/3)*17,42-(pos%3)*17,15,15);
 }
-
 
 void ScanFace(int face,int c1,int c2,int c3,int c4,int c5,int c6,int c7,int c8,int endAngle)
 {
@@ -243,72 +236,53 @@ void ScanFace(int face,int c1,int c2,int c3,int c4,int c5,int c6,int c7,int c8,i
 
   // *** scan center
   RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_CENTER-SCANNERPOS_HOME,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,CENTER);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(CENTER); 
 
   // *** scan corners
   RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_CORNERS-SCANNERPOS_CENTER,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c1);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(UPPERRIGHT); 
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,-90,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c2);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(DOWNRIGHT); 
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,-90,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c3);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(DOWNLEFT); 
   RotateMotor(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,-90);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c4);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(UPPERLEFT); 
 
   // *** scan edges
   RotateMotorEx(MOTOR_SCANNER,10,SCANNERPOS_EDGES-SCANNERPOS_CORNERS,0,false,true);
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,TABLE_OFFSET_EDGE,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c5);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(MIDLEFT); 
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c6);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(UPPERMID); 
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c7);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(MIDRIGHT); 
   RotateMotorEx(MOTOR_TABLE,MOTOR_TABLE_SCANSPEED,90,0,false,true);
-  SetSensorColorFull(SENSOR_COLOR);
   ReadColor(face,c8);
-  SetSensorType(SENSOR_COLOR,SENSOR_TYPE_NONE);
   DrawFacelet(DOWNMID); 
   
   // *** reset scanner arm and table
   RotateMotorEx(MOTOR_SCANNER,20,SCANNERPOS_HOME-SCANNERPOS_CORNERS,0,false,true);
-  currentAngle=-1;
 }
 
 void ScanCube()
 {
   ScanFace(TOPFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
   Tilt();
-  ScanFace(BACKFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
+  ScanFace(FRONTFACE,UPPERLEFT,DOWNLEFT,DOWNRIGHT,UPPERRIGHT,MIDRIGHT,DOWNMID,MIDLEFT,UPPERMID,0);
   Tilt();
   ScanFace(BOTTOMFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,-270);
   Tilt();
-  ScanFace(LEFTFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
+  ScanFace(BACKFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
   Tilt();
-  ScanFace(FRONTFACE,UPPERLEFT,DOWNLEFT,DOWNRIGHT,UPPERRIGHT,MIDRIGHT,DOWNMID,MIDLEFT,UPPERMID,0);
+  ScanFace(LEFTFACE,UPPERRIGHT,UPPERLEFT,DOWNLEFT,DOWNRIGHT,DOWNMID,MIDLEFT,UPPERMID,MIDRIGHT,0);
   Tilt();
   ScanFace(RIGHTFACE,DOWNLEFT,DOWNRIGHT,UPPERRIGHT,UPPERLEFT,UPPERMID,MIDRIGHT,DOWNMID,MIDLEFT,-270);
   Tilt();
@@ -359,12 +333,25 @@ void InitCubeRepresentation()
 void InitTilter()
 {
   flipperPosition = FLIPPER_HOME_POS;
+  ResetTachoCount(MOTOR_FLIPPER);
+}
+
+void InitTable()
+{
+  ResetTachoCount(MOTOR_TABLE);
+}
+
+void InitScanner()
+{
+  ResetTachoCount(MOTOR_SCANNER);
 }
 
 void Initialize()
 {
   InitCubeRepresentation();
   InitTilter();
+  InitTable();
+  InitScanner();
   SetSensorLowspeed(SENSOR_DISTANCE);
   SetSensorTouch(TOUCH_PORT);
 }
@@ -384,7 +371,7 @@ void WaitForCube()
   }while((CurrentTick() - startTick < 1000) && !ButtonPressed(BTNCENTER,false));
   TextOut(20,LCD_LINE5,"THANK YOU!",true);
   PlayFile("Thank You.rso");
-  Wait(2000);
+  Wait(1000);
 }
 
 //*****************************************************************************
@@ -402,8 +389,12 @@ task cube_tester()
   Tilt(); waitForStepper();
 
   Twist(1); waitForStepper();
-
+  Twist(2); waitForStepper();
   
+  Tilt(); waitForStepper();
+
+  Twist(-3); waitForStepper();
+
   /*
   TurnCube(1); waitForStepper();
   TurnCube(2); waitForStepper();
@@ -416,7 +407,6 @@ task cube_tester()
   */
 
   //ScanCube();
-  
 }
 
 task main() {
